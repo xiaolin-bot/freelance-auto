@@ -1,0 +1,22 @@
+# ========== 敏感信息：绝不提交 ==========
+.env
+data/
+
+# ========== Python ==========
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# ========== 编辑器和系统 ==========
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ========== 临时文件 ==========
+*.log
+tmp/

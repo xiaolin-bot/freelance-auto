@@ -1,0 +1,109 @@
+# ============================================================
+# freelance-auto 配置文件
+# 敏感信息（API key 等）请放在 .env 中，不要写在这里
+# ============================================================
+
+# ---- 订单雷达 ----
+radar:
+  # 每次抓取时每页的延迟秒数（礼貌爬虫，避免被封）
+  request_interval_sec: 3.0
+  # 抓取最大页数
+  max_pages: 3
+  # 订单保留窗口：超过 N 天的订单不再进入筛选（天）
+  order_ttl_days: 7
+
+  # 电鸭社区 (https://eleduck.com)
+  eleduck:
+    enabled: true
+    # 版块 category id（5 = 招聘/需求 jd，kind=work；32 = 工作机会匹配；22 = 精选职位推荐）
+    topic_id: 5
+    base_url: "https://eleduck.com"
+
+  # V2EX 外包 (https://www.v2ex.com/go/outsourcing)
+  v2ex:
+    enabled: true
+    # 外包节点（注意：旧 freelancer 节点已被官方隐藏，勿改回）
+    board: "outsourcing"
+    base_url: "https://www.v2ex.com"
+
+# ---- AI 筛选 ----
+screener:
+  # 每天最多筛选多少条新订单
+  daily_cap: 20
+  # 进入候选池的最低得分（0-100）
+  min_score: 60
+  # 每次通知 Top N 候选
+  top_n: 5
+  # 你的技术栈描述（LLM 据此匹配订单）——按真实简历填写，直接影响筛选质量
+  profile: |
+    资深 AI 全栈开发者（数字媒体艺术科班 + AI 复合背景），可独立完成前端+后端+数据库全链路开发与交付。
+    擅长：
+    - Python 爬虫与数据抓取、跨境电商自动化（Shopify 独立站/1688 选品/自动上架/数据管道）
+    - 微信小程序/小游戏开发（Cocos Creator + TypeScript）、企业官网/落地页/管理后台
+    - AI 应用开发与 LLM API 对接（Claude/DeepSeek 生态、MCP 协议、Prompt 工程）
+    - 本地大模型私有化部署与调优（Dify/vLLM/ComfyUI 等）、AI 视频/图像内容生成工作流
+    - AI 编程工具链（Claude Code/Codex/OpenCode/Cursor）与模型路由成本优化
+    - Windows PowerShell / macOS bash 双平台自动化脚本、Git/GitHub 驱动开发
+    - 海外支付与账户体系（PayPal 国际收款、虚拟卡、海外订阅）实操经验
+    另有销售与管理背景（华为全系列 3 个月销售额破 200 万、K12 团队主管连续 8 个月业绩第一），沟通与商务谈判能力强，客户服务意识好。
+    可接中英文单，报价合理，小单 1-3 天交付，大单 5-10 天。
+
+# ---- 提案生成 ----
+proposal:
+  # 默认报价下限/上限（元），LLM 会结合订单预算调整
+  default_price_min: 500
+  default_price_max: 5000
+  # 交付周期预估（天），LLM 会结合工作量调整
+  default_days: 5
+  # 提案自动生成后是否需要人工确认才可发送
+  require_approval: true
+
+# ---- 交付流水线 ----
+delivery:
+  # 工作目录（存放接单后的项目文件）
+  workdir: "data/workspaces"
+  # 自动运行测试（如订单含代码任务）
+  auto_test: true
+  # 人工质检关卡（true = 必须人工 approve 才能标记交付）
+  require_review: true
+
+# ---- CRM ----
+crm:
+  # 未回应提醒（天）：提案发出后 N 天未回应则提醒跟进
+  followup_days: 2
+  # 交付前提醒（天）：交付截止前 N 天提醒
+  deadline_alert_days: 1
+  # 催款提醒（天）：交付后 N 天未收款则提醒
+  payment_reminder_days: 3
+
+# ---- 通知 ----
+notify:
+  # 通知渠道：serverchan / dingtalk / email / none
+  channel: "none"
+  serverchan:
+    send_key: ""
+  dingtalk:
+    webhook: ""
+  email:
+    smtp_host: ""
+    smtp_port: 465
+    smtp_user: ""
+    smtp_password: ""
+    from_addr: ""
+    to_addrs: []
+  # 推送时机
+  on_new_orders: true      # 有新订单入库
+  on_shortlist: true       # 有候选订单
+  on_proposal_ready: true  # 提案已生成
+  on_delivery_review: true # 待人工质检
+
+# ---- 调度 ----
+scheduler:
+  # 雷达抓取间隔（分钟）
+  radar_interval_min: 60
+  # 筛选间隔（分钟）
+  screen_interval_min: 60
+  # 提案生成间隔（分钟）
+  proposal_interval_min: 120
+  # CRM 提醒检查间隔（分钟）
+  crm_interval_min: 180
