@@ -19,4 +19,6 @@ Thumbs.db
 
 # ========== 临时文件 ==========
 *.log
-tmp/
+tmp/*.png
+send_*.log
+gh_*.txt
