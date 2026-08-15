@@ -33,6 +33,8 @@ def main() -> int:
     ok = True
     ok &= run("python -m freelance_auto.cli once") == 0
     ok &= run("python C:/freelance-auto/export_new.py") == 0
+    # 每日限量发送提案（sender 自带额度控制：每天最多 5 份，发满自动停）
+    ok &= run("python C:/freelance-auto/sender.py") == 0
     return 0 if ok else 1
 
 

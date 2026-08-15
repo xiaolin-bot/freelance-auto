@@ -1,0 +1,78 @@
+#78 draft      [eleduck] 招聘ai工程师  远程交付
+#77 draft      [eleduck] AI智能体招募合作技术伙伴
+#76 draft      [eleduck] 内容运营视频制作
+#75 draft      [eleduck] 招募 AI 产品增长合伙人 / CGO
+#74 draft      [eleduck] [新加坡/可远程] 智能体垂类赛道-寻找 AI 与数据工程师 / 技术
+#73 draft      [eleduck] 30k-50k/远程居家办公（AI agent方向）-大模型聚合业务负
+#72 draft      [eleduck] 【兼职远程】微小设计文化电商项目 — 商业负责人
+#71 draft      [v2ex] [接活] Next.js 全栈五年，可远程。
+#70 draft      [eleduck] 后端开发工程师（Python方向｜全职居家远程）
+#69 draft      [eleduck] TK/FB工厂账号短视频剪辑（长期远程合作）
+#68 draft      [eleduck] 外包｜基于Dify私有化搭建AI智能体微信小程序
+#67 draft      [eleduck] 现场作业语音标准化智能分析——前期验证 Demo 开发招募
+#66 draft      [eleduck] 微信小程序货源平台入驻二级进件咨询，报酬 100
+#65 draft      [eleduck] 付费找个人做openclaw和excel相关
+#64 draft      [eleduck] 【全职远程】招做事靠谱的微信小程序，APP全栈开发，靠谱的送原始股（可
+#63 draft      [eleduck] 【长期合作】招募淘宝小程序全栈开发（可长期远程维护）
+#62 draft      [eleduck] 站场作业规范文件智能编审系统 轻量化Demo原型开发
+#61 draft      [eleduck] 远程项目制后端开发工程师 | 一件代发云仓平台
+#60 draft      [v2ex] 寻一名 comfyui 绘图高手制作工作流
+#59 draft      [eleduck] 15K-20K RMB/招全栈工程师 / AI Native Deve
+#58 draft      [eleduck] [零活] 请人基于我的ICT策略，用Python开发自动化交易程序
+#57 draft      [eleduck] AI图文UI设计师
+#56 draft      [eleduck] 参考一个web端原型网站出一个android app
+#55 draft      [eleduck] 「国际税务/咨询事务所直聘」- 企业出海红利 - 线上销售岗位 - 线
+#54 draft      [eleduck] https://www.huotu333.cn这上面所有功能都要复刻，
+#53 draft      [eleduck] 【全职远程 45-60k】TS系统集成工程师  海外Agent企业
+#52 draft      [eleduck] 找个能从装机做到出接口的人，国产卡环境，山东现场
+#51 draft      [eleduck] Trust Wallet 企业直聘｜研发、产品等多方向岗位｜全职远程｜
+#50 draft      [eleduck] 远程全职｜企业入驻与内容运营助理
+#49 draft      [eleduck] Butterbase 招聘｜后端工程师（AI Agent 方向）｜全职
+#48 draft      [eleduck] 深圳宝安｜现有项目外包｜寻找个人全栈开发者长期合作
+#47 draft      [eleduck] 找个能从装机做到出接口的人，国产卡环境，山东现场
+#46 draft      [eleduck] 【企业直招｜全职远程】宏盟云招聘市场、跨境履约、新媒体运营
+#45 draft      [eleduck] 寻Codex+路小飞网页开发长期包月陪跑老师
+#44 draft      [eleduck] 大量需求剪辑师
+#43 draft      [eleduck] 招聘Ai视频剪辑师 杭州最好
+#42 draft      [eleduck] 找长期技术合作：PHP全栈开发（同城分类信息系统项目）
+#41 draft      [eleduck] 长沙线下项目交付及测试
+#40 draft      [eleduck] 日本潮牌跨境电商 AI 自动选品及自动上架系统
+#39 draft      [eleduck] 一批实验耗材名称匹配生产厂家信息
+#38 draft      [eleduck] 📌 [招募] 寻 Go/Node.js 全栈工程师，开发大模型 API
+#37 draft      [eleduck] 远程兼职AI工作流开发工程师
+#36 draft      [eleduck] 大量需求剪辑师
+#35 draft      [eleduck] （兼职居家办公）跨境电商独立站运营/店长
+#34 draft      [eleduck] SmartDeer 招聘｜测试 & 实施工程师｜远程协作｜ 10k-1
+#33 draft      [eleduck] 寻求AI/ML工程师 or 技术负责人】重点AI训练与信号模型
+#32 draft      [eleduck] 个人接单android原生开发
+#31 draft      [eleduck] [远程][全职]全栈高级工程师/长沙、郑州、西安
+#30 draft      [eleduck] 【远程长期招聘】客户端/前端工程师、后端工程师
+#29 sent       [eleduck] TY型号随身WiFi 有实体卡槽，但是后天无切换选项，有无大佬研究过
+#28 sent       [eleduck] 寻找兼职技术负责人：已有企业微信AI订单助手系统，需要腾讯云部署和生产
+#27 sent       [eleduck] AI产品技术负责人（Founding AI Engineer）
+#26 approved   [eleduck] ai nas系统（个人和企业）招募合伙人（测试、推广、投资）
+#25 approved   [eleduck] 【远程】北美 AI 创业公司找一位 macOS 开发（应届 - 3 年
+#24 approved   [eleduck] 【远程外包｜付费定制】项目招募：实拍+AI数字人混剪定制工作流（第一期
+#23 approved   [eleduck] 有个AI生成的全栈项目需要迁移+重构，找个懂 Deno 的程序员（重庆
+#22 approved   [eleduck] 英文独立站SEO/技术SEO兼职顾问
+#21 approved   [eleduck] 【远程兼职/可线下】AI工作流开发｜ChatGPT/Claude 项目
+#20 approved   [eleduck] 全栈工程师兼职
+#19 approved   [eleduck] 【全职远程】 AI产品经理/软件工程师/UI、平面设计师
+#18 approved   [eleduck] Nova 助力中国企业出海AGENT工具招AI运营 （远程）
+#17 approved   [eleduck] 15K-20K RMB/招全栈工程师 / AI Native Deve
+#16 approved   [eleduck] 【远程合作】已有在线3D家居选款产品，寻找家具行业销售／渠道合作伙伴
+#15 approved   [eleduck] 远程兼职｜AI 产品销售副业招募】高佣金，自由时间，团队全程兜底
+#14 approved   [eleduck] 招募各行业专家｜将日常电脑工作设计成AI Agent任务（300-10
+#13 approved   [eleduck] 【包月付费置顶】【参加报销电量】TalentsAI｜大量招聘Vibe 
+#12 approved   [eleduck] 考种软件长粒种子识别算法
+#11 approved   [eleduck] 【远程办公】招全栈工程师 月薪12K-20K 新加坡外企
+#10 approved   [eleduck] Auto.js 自动化脚本开发工程师 / 移动端脚本技术员
+#9 approved   [eleduck] 数字营销运营（SEO + 社媒方向）
+#8 approved   [eleduck] 招长期兼职游戏设计师海外线上
+#7 approved   [eleduck] 【可外包，可全职（12000-20000元/月）-1名-目前在深圳周边
+#6 approved   [eleduck] 招募：长期电商运营兼职操盘手｜仅独立个人接单，外包、代运营团队勿扰
+#5 approved   [eleduck] 招募项目合伙人【全栈】【产品】【测试】【运营】
+#4 approved   [eleduck] 【外包零活】Dify + vLLM 私有化部署技术专家（远程）
+#3 approved   [v2ex] app 爬虫外包
+#2 approved   [v2ex] 请问这里可以找到比较空闲的大佬或者大学生吗？想付费开发一个程序
+#1 approved   [v2ex] Gemini 中转站解决方案
