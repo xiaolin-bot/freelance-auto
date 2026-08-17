@@ -93,6 +93,7 @@ def main() -> None:
                 ta = page.query_selector("textarea")
                 if not ta:
                     print(f"    [WARN] 无评论框 #{prop.id}（手动: {order.url}）")
+                    db.set_proposal_status(prop.id, ProposalStatus.SKIPPED)
                     skipped += 1
                     page.close()
                     continue
@@ -108,6 +109,7 @@ def main() -> None:
                         pass
                 if not btn:
                     print(f"    [WARN] 无发布按钮 #{prop.id}")
+                    db.set_proposal_status(prop.id, ProposalStatus.SKIPPED)
                     skipped += 1
                     page.close()
                     continue
@@ -119,12 +121,15 @@ def main() -> None:
                     sent_ok += 1
                     print(f"    [OK] #{prop.id} 已发送")
                 else:
-                    # 可能触发限流，立即停止本轮，避免继续触发风控
-                    print(f"    [LIMIT] #{prop.id} 发送未确认（可能限流），本轮停止")
+                    # 可能触发限流：标记该提案为已处理（REJECTED），避免下次重复尝试同一帖子
+                    db.set_proposal_status(prop.id, ProposalStatus.SKIPPED)
+                    print(f"    [LIMIT] #{prop.id} 发送未确认（限流），标记跳过，本轮停止")
                     page.close()
                     break
             except Exception as e:
                 print(f"    [ERR] #{prop.id} 异常: {e}")
+                # 异常也标记跳过，避免下次重复尝试同一帖子
+                db.set_proposal_status(prop.id, ProposalStatus.SKIPPED)
                 skipped += 1
             page.close()
             if sent_ok > 0:

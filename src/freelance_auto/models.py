@@ -42,6 +42,7 @@ class ProposalStatus(str, Enum):
     DRAFT = "draft"
     APPROVED = "approved"      # 人工确认可发
     SENT = "sent"
+    SKIPPED = "skipped"        # 发送失败/无法发送，跳过（不再重试）
     WON = "won"
     LOST = "lost"
 
