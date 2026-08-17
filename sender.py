@@ -1,9 +1,10 @@
 ﻿"""每日限量发送电鸭提案（自动开帖→填评论→发布→验证→标记 sent）。
 
 风控友好策略：
-- 每天最多发 DAILY_LIMIT 份（默认 5，电鸭回帖限制较严）
+- 每天最多发 DAILY_LIMIT 份（默认 10，可按风控情况调整）
 - 份间随机延时 180-300 秒
 - 自动过滤评论区禁止的内容（联系方式等）
+- 自动跳过已结束/已关闭的帖子
 - 已发送的提案（status=sent）不会重发
 - 用法: python sender.py            # 发今天剩余额度
        python sender.py 3          # 只发 3 份
@@ -25,9 +26,11 @@ from freelance_auto.models import ProposalStatus
 from playwright.sync_api import sync_playwright
 
 PROFILE = str((Path("C:/freelance-auto/data/browser_profile")).resolve())
-DAILY_LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+DAILY_LIMIT = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 
 BANNED = ["微信", "wechat", "vx", "qq", "邮箱", "email", "电话", "手机", "@", "13823237314", "bendylin123"]
+# 已结束/已关闭的帖子标题标记：跳过，不再发送
+CLOSED_MARKERS = ["已结束", "已关闭", "已截止", "已停止", "closed", "完结", "停止招聘", "已招满", "已招到", "已找到"]
 
 
 def clean_msg(body: str, max_len: int = 700) -> str:
@@ -65,11 +68,19 @@ def main() -> None:
         return
     print(f"今日已发 {sent_today}/{DAILY_LIMIT}，本次最多再发 {remaining} 份")
 
-    # 待发送：approved 且电鸭且未发
-    pending = [
-        p for p in db.list_proposals(status=ProposalStatus.APPROVED)
-        if (o := db.get_order(p.order_id)) and o.source == "eleduck" and o.url
-    ]
+    # 待发送：approved 且电鸭且未发，且帖子未结束
+    pending = []
+    for p in db.list_proposals(status=ProposalStatus.APPROVED):
+        order = db.get_order(p.order_id)
+        if not order or order.source != "eleduck" or not order.url:
+            continue
+        # 跳过已结束/已关闭的帖子
+        title_low = (order.title or "").lower()
+        if any(m in title_low for m in CLOSED_MARKERS):
+            db.set_proposal_status(p.id, ProposalStatus.SKIPPED)
+            print(f"  [SKIP] #{p.id} 帖子已结束，跳过: {order.title[:35]}")
+            continue
+        pending.append(p)
     print(f"待发送候选: {len(pending)} 份")
 
     with sync_playwright() as p:
