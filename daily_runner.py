@@ -35,6 +35,8 @@ def main() -> int:
     ok &= run("python C:/freelance-auto/export_new.py") == 0
     # 每日限量发送提案（sender 自带额度控制：每天最多 5 份，发满自动停）
     ok &= run("python C:/freelance-auto/sender.py") == 0
+    # 检查电鸭回复/消息（无头浏览器，有新消息写桌面报告）
+    ok &= run("python C:/freelance-auto/check_replies.py") == 0
     return 0 if ok else 1
 
 
