@@ -114,16 +114,34 @@ def main() -> None:
                     page.close()
                     continue
                 btn.click()
+                time.sleep(3)
+                # 关键修复：刷新页面后再验证——page.content() 包含评论框里填的内容，
+                # 不刷新会误判"成功"（哪怕发布失败）。刷新后评论框已清空，只有真正
+                # 发布的评论才会出现在页面里。
+                page.reload(wait_until="domcontentloaded", timeout=30000)
                 time.sleep(4)
                 kw = find_keyword(msg)
-                if kw and kw in page.content():
+                found = False
+                if kw:
+                    # 只在评论区查找（.comment 容器），避免匹配到正文/其他区域
+                    found = page.evaluate(
+                        """(kw) => {
+                            const sel = document.querySelectorAll('.comment, [class*=comment]');
+                            for (const el of sel) {
+                                if ((el.innerText || '').includes(kw)) return true;
+                            }
+                            return false;
+                        }""",
+                        kw,
+                    )
+                if found:
                     db.set_proposal_status(prop.id, ProposalStatus.SENT)
                     sent_ok += 1
-                    print(f"    [OK] #{prop.id} 已发送")
+                    print(f"    [OK] #{prop.id} 已发送（刷新后确认）")
                 else:
-                    # 可能触发限流：标记该提案为已处理（REJECTED），避免下次重复尝试同一帖子
+                    # 可能触发限流或发布失败：标记为跳过，避免下次重复尝试同一帖子
                     db.set_proposal_status(prop.id, ProposalStatus.SKIPPED)
-                    print(f"    [LIMIT] #{prop.id} 发送未确认（限流），标记跳过，本轮停止")
+                    print(f"    [LIMIT] #{prop.id} 发布未确认（限流/失败），标记跳过，本轮停止")
                     page.close()
                     break
             except Exception as e:
