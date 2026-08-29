@@ -90,6 +90,7 @@ def main() -> None:
             no_viewport=True,
         )
         sent_ok, skipped = 0, 0
+        consecutive_rate_limit = 0
         for prop in pending[:remaining]:
             order = db.get_order(prop.order_id)
             msg = clean_msg(prop.body)
@@ -148,23 +149,35 @@ def main() -> None:
                 if found:
                     db.set_proposal_status(prop.id, ProposalStatus.SENT)
                     sent_ok += 1
+                    consecutive_rate_limit = 0
                     print(f"    [OK] #{prop.id} 已发送（刷新后确认）")
                 else:
-                    # 可能触发限流或发布失败：标记为跳过，避免下次重复尝试同一帖子
-                    db.set_proposal_status(prop.id, ProposalStatus.SKIPPED)
-                    print(f"    [LIMIT] #{prop.id} 发布未确认（限流/失败），标记跳过，本轮停止")
-                    page.close()
-                    break
+                    # 发布未确认（限流/失败）：标记回 APPROVED，下次运行重试
+                    db.set_proposal_status(prop.id, ProposalStatus.APPROVED)
+                    consecutive_rate_limit += 1
+                    skipped += 1
+                    print(f"    [LIMIT] #{prop.id} 发布未确认（限流/失败），下次重试（连续失败 {consecutive_rate_limit}/5）")
+                    if consecutive_rate_limit >= 5:
+                        print("    连续 5 次限流/失败，本轮停止")
+                        page.close()
+                        break
+                    # 限流后等更长冷却（2-4分钟）
+                    time.sleep(random.randint(120, 240))
+            except Exception as e:
+                print(f"    [ERR] #{prop.id} 异常: {e}")
+                # 异常也标记回 APPROVED，下次运行重试（不永久跳过）
+                db.set_proposal_status(prop.id, ProposalStatus.APPROVED)
+                skipped += 1
             except Exception as e:
                 print(f"    [ERR] #{prop.id} 异常: {e}")
                 # 异常也标记跳过，避免下次重复尝试同一帖子
                 db.set_proposal_status(prop.id, ProposalStatus.SKIPPED)
                 skipped += 1
-            page.close()
-            if sent_ok > 0:
-                delay = random.randint(180, 300)
-                print(f"    等待 {delay} 秒...")
-                time.sleep(delay)
+                if sent_ok > 0 or (skipped > 0 and sent_ok == 0):
+                    # 发成功后正常间隔；限流后等更久冷却
+                    delay = random.randint(180, 300) if sent_ok > 0 else random.randint(300, 600)
+                    print(f"    等待 {delay} 秒...")
+                    time.sleep(delay)
         ctx.close()
 
     db.close()
