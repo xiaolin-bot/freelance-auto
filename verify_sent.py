@@ -81,8 +81,20 @@ def main() -> int:
             ignore_https_errors=True,
         )
         page = ctx.new_page()
-        # 先确认登录态
-        page.goto("https://eleduck.com/", wait_until="domcontentloaded", timeout=45000)
+        # 先确认登录态（瞬时网络错误自动重试 5 秒 × 3 次）
+        for attempt in range(1, 4):
+            try:
+                page.goto("https://eleduck.com/", wait_until="domcontentloaded", timeout=45000)
+                break
+            except Exception as e:
+                if attempt < 3:
+                    print(f"  连接失败，5秒后重试 ({attempt}/3): {str(e)[:60]}")
+                    time.sleep(5)
+                else:
+                    print(f"  重试 3 次仍失败，放弃: {str(e)[:60]}")
+                    ctx.close()
+                    db.close()
+                    return 1
         time.sleep(4)
         logged_in = "发布" in page.evaluate("document.body.innerText")
         if not logged_in:

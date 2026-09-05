@@ -55,7 +55,19 @@ def check() -> dict:
             ignore_https_errors=True,
         )
         page = ctx.new_page()
-        page.goto(MESSAGES_URL, wait_until="domcontentloaded", timeout=45000)
+        # 瞬时网络错误自动重试（5 秒 × 3 次）
+        for attempt in range(1, 4):
+            try:
+                page.goto(MESSAGES_URL, wait_until="domcontentloaded", timeout=45000)
+                break
+            except Exception as e:
+                if attempt < 3:
+                    print(f"  连接失败，{5}秒后重试 ({attempt}/3): {str(e)[:60]}")
+                    time.sleep(5)
+                else:
+                    print(f"  重试 3 次仍失败，放弃: {str(e)[:60]}")
+                    ctx.close()
+                    return result
         time.sleep(5)
 
         for tab in TABS:

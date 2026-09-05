@@ -119,7 +119,17 @@ def main() -> int:
         pg = None
         try:
             pg = ctx.new_page()
-            pg.goto(o.url, wait_until="domcontentloaded", timeout=45000)
+            # 瞬时网络错误自动重试（5 秒 × 3 次）
+            for attempt in range(1, 4):
+                try:
+                    pg.goto(o.url, wait_until="domcontentloaded", timeout=45000)
+                    break
+                except Exception as e:
+                    if attempt < 3:
+                        print(f"    连接失败，5秒后重试 ({attempt}/3)")
+                        time.sleep(5)
+                    else:
+                        raise
             time.sleep(5)
 
             # 浏览器层去重：检查是否已有"我的评论"
