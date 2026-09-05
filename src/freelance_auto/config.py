@@ -22,6 +22,7 @@ class SourceConfig(BaseModel):
     base_url: str = ""
     topic_id: int = 0
     board: str = ""
+    categories: str = ""  # 逗号分隔；WWR 等多分类源用
 
 
 class RadarConfig(BaseModel):
@@ -30,6 +31,11 @@ class RadarConfig(BaseModel):
     order_ttl_days: int = 7
     eleduck: SourceConfig = SourceConfig(base_url="https://eleduck.com", topic_id=19)
     v2ex: SourceConfig = SourceConfig(base_url="https://www.v2ex.com", board="freelancer")
+    yaojiedan: SourceConfig = SourceConfig(base_url="https://www.yaojiedan.com")
+    wwr: SourceConfig = SourceConfig(
+        base_url="https://weworkremotely.com",
+        categories="remote-full-stack-programming-jobs,remote-programming-jobs,remote-devops-sysadmin-jobs",
+    )
 
 
 class ScreenerConfig(BaseModel):

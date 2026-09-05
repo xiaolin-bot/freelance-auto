@@ -9,6 +9,8 @@ from ..db import Database
 from ..models import Order
 from .eleduck import EleduckSource
 from .v2ex import V2exSource
+from .yaojiedan import YaojiedanSource
+from .wwr import WwrSource
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,10 @@ def run_radar(db: Database, config: AppConfig) -> list[Order]:
         sources.append(EleduckSource(rc.eleduck, interval_sec=rc.request_interval_sec, max_pages=rc.max_pages))
     if rc.v2ex.enabled:
         sources.append(V2exSource(rc.v2ex, interval_sec=rc.request_interval_sec, max_pages=rc.max_pages))
+    if rc.yaojiedan.enabled:
+        sources.append(YaojiedanSource(rc.yaojiedan, interval_sec=rc.request_interval_sec, max_pages=rc.max_pages))
+    if rc.wwr.enabled:
+        sources.append(WwrSource(rc.wwr, interval_sec=rc.request_interval_sec, max_pages=rc.max_pages))
 
     for src in sources:
         try:

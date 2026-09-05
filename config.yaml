@@ -26,6 +26,18 @@ radar:
     board: "outsourcing"
     base_url: "https://www.v2ex.com"
 
+  # 要接单 (https://www.yaojiedan.com) —— 国内程序员接单，免费、无平台费
+  yaojiedan:
+    enabled: true
+    base_url: "https://www.yaojiedan.com"
+
+  # We Work Remotely (https://weworkremotely.com) —— 海外远程岗位 RSS，0 费用
+  wwr:
+    enabled: true
+    base_url: "https://weworkremotely.com"
+    # 抓取的分类（逗号分隔）——按对林耀国技术栈相关度排序
+    categories: "remote-full-stack-programming-jobs,remote-programming-jobs,remote-devops-sysadmin-jobs"
+
 # ---- AI 筛选 ----
 screener:
   # 每天最多筛选多少条新订单
