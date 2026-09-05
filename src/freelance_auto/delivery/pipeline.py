@@ -22,7 +22,7 @@ from typing import Any
 
 from ..config import AppConfig
 from ..db import Database
-from ..llm import LLMClient, LLMError
+from ..llm import LLMError, get_llm
 from ..models import (
     Notification,
     NotificationType,
@@ -302,7 +302,7 @@ def start_project(
     )
 
     try:
-        client = LLMClient()
+        client = get_llm()
         data = client.chat_json(_DECOMPOSE_SYSTEM, user)
         parsed = _parse_decomposed_tasks(data)
     except LLMError:
@@ -350,7 +350,7 @@ def run_task_generation(db: Database, config: AppConfig, project_id: int) -> int
         return 0
 
     try:
-        client = LLMClient()
+        client = get_llm()
     except LLMError:
         logger.exception("LLM 不可用，项目 %s 的任务生成跳过", project_id)
         return 0

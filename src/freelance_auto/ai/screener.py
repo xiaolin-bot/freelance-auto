@@ -19,7 +19,7 @@ from typing import Any
 
 from ..config import AppConfig
 from ..db import Database
-from ..llm import LLMClient, LLMError
+from ..llm import LLMError, get_llm
 from ..models import NotificationType, Order, OrderStatus
 from ..utils import now_iso, truncate
 
@@ -149,7 +149,7 @@ def _screen_one(llm: LLMClient, db: Database, config: AppConfig, order: Order) -
 def screen_orders(db: Database, config: AppConfig) -> int:
     """处理所有 status=new 的订单（最多 daily_cap 条），返回新增候选（SHORTLISTED）数。"""
     try:
-        llm = LLMClient()
+        llm = get_llm()
     except LLMError:
         logger.warning("未配置 LLM，跳过筛选")
         return 0

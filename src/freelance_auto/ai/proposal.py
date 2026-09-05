@@ -19,7 +19,7 @@ from typing import Any
 
 from ..config import AppConfig
 from ..db import Database
-from ..llm import LLMClient, LLMError
+from ..llm import LLMError, get_llm
 from ..models import NotificationType, Order, OrderStatus, Proposal, ProposalStatus
 from ..utils import truncate
 
@@ -136,7 +136,7 @@ def _generate_one(llm: LLMClient, db: Database, config: AppConfig, order: Order)
 def generate_proposals(db: Database, config: AppConfig) -> int:
     """处理所有 SHORTLISTED 且尚无提案的订单，生成提案并入库，返回生成数。"""
     try:
-        llm = LLMClient()
+        llm = get_llm()
     except LLMError:
         logger.warning("未配置 LLM，跳过提案")
         return 0
