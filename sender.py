@@ -1,12 +1,13 @@
-"""电鸭提案自动发送 v3 - 彻底重写。
+"""电鸭提案自动发送 v4 - 加防重复 + 每日 4 条限额。
 
-核心改进：
-- headless 模式 + 反检测参数
-- 每次发送后等 5-10 分钟冷却
-- 连续失败 3 次停止（而非 5 次）
-- 所有失败的保持 APPROVED（下次重试）
+核心改进（v3 → v4）：
+- DB 层去重：同一帖子已 SENT 不再发
+- 浏览器层去重：发前访问帖子，检查是否已存在我的评论
+- 每日 4 条限额（电鸭官方限额），超过就停
+- 限流时保持 APPROVED，明天重试
 """
-import random, re, sys, time
+import json, random, re, sys, time
+from datetime import datetime
 from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -19,8 +20,10 @@ from freelance_auto.models import ProposalStatus
 from playwright.sync_api import sync_playwright
 
 PROFILE = str((Path("C:/freelance-auto/data/browser_profile")).resolve())
+DAILY_LIMIT_FILE = Path("C:/freelance-auto/data/daily_send_count.json")
 BANNED = ["微信", "wechat", "vx", "qq", "邮箱", "email", "电话", "手机", "@", "13823237314", "bendylin123"]
 CLOSED = ["已结束", "已关闭", "已截止", "已停止", "closed", "完结", "停止招聘", "已招满", "已招到", "已找到"]
+DAILY_CAP = 4  # 电鸭每日发帖上限
 
 
 def clean(body: str) -> str:
@@ -36,15 +39,53 @@ def kw(msg: str) -> str:
     return re.sub(r"\s", "", msg)[:20]
 
 
+def get_daily_count() -> int:
+    """今日已发送条数（统计 SENT 状态且今天更新的）。"""
+    if not DAILY_LIMIT_FILE.exists():
+        return 0
+    try:
+        data = json.loads(DAILY_LIMIT_FILE.read_text(encoding="utf-8"))
+        today = datetime.now().strftime("%Y-%m-%d")
+        if data.get("date") == today:
+            return int(data.get("count", 0))
+    except Exception:
+        pass
+    return 0
+
+
+def set_daily_count(n: int) -> None:
+    today = datetime.now().strftime("%Y-%m-%d")
+    DAILY_LIMIT_FILE.write_text(
+        json.dumps({"date": today, "count": n}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
     cfg = load_config()
     db = Database(cfg.db_path())
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 999
 
+    # 今日已发数（含本轮前累积的）
+    already_sent_today = sum(
+        1 for p in db.list_proposals(status=ProposalStatus.SENT)
+        if p.updated_at.startswith(datetime.now().strftime("%Y-%m-%d"))
+    )
+    remaining_quota = max(0, DAILY_CAP - already_sent_today)
+    print(f"今日电鸭额度: {already_sent_today}/{DAILY_CAP}，剩余 {remaining_quota} 条")
+
+    if remaining_quota == 0:
+        print("今日额度已用完，明天再发")
+        db.close()
+        return 0
+
+    # 待发列表 + DB 层去重
+    sent_orders = {p.order_id for p in db.list_proposals(status=ProposalStatus.SENT)}
     pending = [
         p for p in db.list_proposals(status=ProposalStatus.APPROVED)
         if (o := db.get_order(p.order_id))
         and o.source == "eleduck" and o.url
+        and o.id not in sent_orders  # DB 层去重
         and not any(m in (o.title or "").lower() for m in CLOSED)
     ][:limit]
     print(f"待发送: {len(pending)} 份")
@@ -64,9 +105,14 @@ def main() -> int:
     )
 
     for i, p in enumerate(pending):
+        # 每日额度检查
+        if sent >= remaining_quota:
+            print(f"达到今日 {DAILY_CAP} 条上限，停止")
+            break
         if fail >= 3:
             print("连续 3 次失败，停止")
             break
+
         o = db.get_order(p.order_id)
         msg = clean(p.body)
         if len(msg) < 20:
@@ -78,6 +124,29 @@ def main() -> int:
             pg = ctx.new_page()
             pg.goto(o.url, wait_until="domcontentloaded", timeout=45000)
             time.sleep(5)
+
+            # 浏览器层去重：检查是否已有"我的评论"
+            # 电鸭的"我的评论"会带特定 class 或者在评论旁显示用户头像/用户名
+            my_comment = pg.evaluate(
+                """() => {
+                    // 查找当前用户名的评论（头像旁有用户名或 @ 符号）
+                    const allComments = document.querySelectorAll('.comment, [class*=comment]');
+                    for (const c of allComments) {
+                        const t = c.innerText || '';
+                        // 如果评论中包含发布者的用户名（电鸭通常会在评论旁显示）
+                        if (t.includes('我') || t.includes('林耀国') || t.includes('bendylin')) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }"""
+            )
+            if my_comment:
+                print(f"  已发过此帖，标记 SENT 跳过")
+                db.set_proposal_status(p.id, ProposalStatus.SENT)
+                pg.close()
+                continue
+
             ta = pg.query_selector("textarea")
             if not ta:
                 print("  无评论框")
@@ -113,8 +182,9 @@ def main() -> int:
             if found:
                 db.set_proposal_status(p.id, ProposalStatus.SENT)
                 sent += 1
+                set_daily_count(already_sent_today + sent)
                 fail = 0
-                print("  [OK]")
+                print(f"  [OK] 今日 {already_sent_today + sent}/{DAILY_CAP}")
             else:
                 fail += 1
                 print(f"  [FAIL] ({fail}/3)")
@@ -133,7 +203,7 @@ def main() -> int:
     ctx.close()
     pw.stop()
     db.close()
-    print(f"\n完成: 成功 {sent}，跳过/失败 {fail}")
+    print(f"\n完成: 成功 {sent}，失败 {fail}，今日累计 {already_sent_today + sent}/{DAILY_CAP}")
     return 0
 
 
