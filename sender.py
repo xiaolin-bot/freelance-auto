@@ -66,11 +66,8 @@ def main() -> int:
     db = Database(cfg.db_path())
     limit = int(sys.argv[1]) if len(sys.argv) > 1 else 999
 
-    # 今日已发数（含本轮前累积的）
-    already_sent_today = sum(
-        1 for p in db.list_proposals(status=ProposalStatus.SENT)
-        if p.updated_at.startswith(datetime.now().strftime("%Y-%m-%d"))
-    )
+    # 今日已发数（从 JSON 文件读取，准确追踪 sender.py 实际发送量）
+    already_sent_today = get_daily_count()
     remaining_quota = max(0, DAILY_CAP - already_sent_today)
     print(f"今日电鸭额度: {already_sent_today}/{DAILY_CAP}，剩余 {remaining_quota} 条")
 
