@@ -64,7 +64,7 @@ class LLMClient:
         已知 provider 的默认 base_url / model（无需配置也能用）：
         - groq:        https://api.groq.com/openai/v1,  llama-3.1-8b-instant
         - siliconflow: https://api.siliconflow.cn/v1,     Qwen/Qwen2.5-7B-Instruct
-        - openrouter:  https://openrouter.ai/api/v1,       deepseek/deepseek-chat-v3.1:free
+        - openrouter:  https://openrouter.ai/api/v1,       minimax/minimax-m3:free
         - huggingface: https://router.huggingface.co/v1,   meta-llama/Llama-3.1-8B-Instruct
         - doubao:      https://ark.cn-beijing.volces.com/api/v3,  doubao-1-5-pro-32k-250115
         - moonshot:    https://api.moonshot.cn/v1,         moonshot-v1-8k
@@ -83,7 +83,7 @@ class LLMClient:
             },
             "openrouter": {
                 "base_url": "https://openrouter.ai/api/v1",
-                "model": "deepseek/deepseek-chat-v3.1:free",
+                "model": "minimax/minimax-m3:free",
             },
             "huggingface": {
                 "base_url": "https://router.huggingface.co/v1",
@@ -277,6 +277,10 @@ def get_llm() -> "LLMClient | FallbackLLMClient":
     """
     import os
 
+    # 关键：pydantic-settings 只读 LLM_* 注入 LLMSettings，不会注入 os.environ。
+    # 手动读 .env 把 LLM_FALLBACK_* 灌进 os.environ，下面的 os.environ.get 才能拿到。
+    _load_env_fallbacks()
+
     # 主
     try:
         primary = LLMClient()
@@ -286,7 +290,7 @@ def get_llm() -> "LLMClient | FallbackLLMClient":
 
     # 收集 fallback
     fallbacks: list[LLMClient] = []
-    for name in ("groq", "siliconflow", "openrouter", "huggingface", "doubao"):
+    for name in ("groq", "siliconflow", "openrouter", "huggingface", "doubao", "moonshot"):
         key = os.environ.get(f"LLM_FALLBACK_{name.upper()}_KEY", "").strip()
         if not key:
             continue
@@ -299,3 +303,36 @@ def get_llm() -> "LLMClient | FallbackLLMClient":
     if not fallbacks:
         return primary
     return FallbackLLMClient([primary, *fallbacks])
+
+
+def _load_env_fallbacks() -> None:
+    """从 .env 读 LLM_FALLBACK_* 系列变量到 os.environ。
+
+    简易解析（不依赖 python-dotenv），支持 KEY=value 格式，跳过 # 注释。
+    已存在的环境变量不被覆盖（保持 shell 里 export 的优先级）。
+    """
+    import os
+    from pathlib import Path
+
+    env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip()
+            v = v.strip()
+            # 去掉行内注释
+            if " #" in v:
+                v = v.split(" #", 1)[0].strip()
+            if v.startswith("#") or not v:
+                continue
+            if not k.startswith("LLM_FALLBACK_"):
+                continue
+            os.environ.setdefault(k, v)
+    except OSError:
+        # .env 读不到不影响主流程
+        pass
