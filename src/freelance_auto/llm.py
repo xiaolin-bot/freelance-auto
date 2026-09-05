@@ -147,40 +147,101 @@ class LLMClient:
 
     # ------------------------------------------------------------- 基础调用
 
+    @staticmethod
+    def _is_transient(exc: Exception) -> bool:
+        """判断是否为瞬时网络错误（SSL EOF / 连接重置 / 超时）。"""
+        name = type(exc).__name__.lower()
+        msg = str(exc).lower()
+        if any(
+            s in name
+            for s in (
+                "timeout",
+                "connect",
+                "remotedisconnected",
+                "protocol",
+                "apiconnection",
+            )
+        ):
+            return True
+        if any(
+            s in msg
+            for s in (
+                "unexpected_eof",
+                "connection reset",
+                "connection aborted",
+                "connection closed",
+                "timed out",
+                "ssl:",
+            )
+        ):
+            return True
+        return False
+
+    def _chat_with_retry(self, create_fn, attempts: int = 3, retry_sec: float = 5.0) -> Any:
+        """带 5 秒重试的 LLM 调用包装。"""
+        last_exc: Exception | None = None
+        for i in range(1, attempts + 1):
+            try:
+                return create_fn()
+            except Exception as e:
+                last_exc = e
+                if not self._is_transient(e):
+                    raise
+                if i < attempts:
+                    logger.warning(
+                        "LLM 瞬时错误 %s, %d 秒后重试 (%d/%d): %s",
+                        type(e).__name__, int(retry_sec), i, attempts, str(e)[:100],
+                    )
+                    import time as _t
+                    _t.sleep(retry_sec)
+                else:
+                    logger.warning("LLM 重试 %d 次仍失败: %s", attempts, str(e)[:100])
+        raise last_exc  # type: ignore[misc]
+
     def chat(self, system: str, user: str, temperature: float = 0.3) -> str:
         """普通对话，返回文本。"""
+        def _do():
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.settings.model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    temperature=temperature,
+                )
+                return resp.choices[0].message.content or ""
+            except Exception as e:  # noqa: BLE001
+                self._maybe_mark_no_money(e)
+                raise
+
         try:
-            resp = self._client.chat.completions.create(
-                model=self.settings.model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                temperature=temperature,
-            )
-            self._last_was_no_money = False
-            return resp.choices[0].message.content or ""
+            return self._chat_with_retry(_do) or ""
         except Exception as e:  # noqa: BLE001
-            self._maybe_mark_no_money(e)
             logger.exception("LLM chat failed")
             raise LLMError(f"LLM 调用失败: {e}") from e
 
     def chat_json(self, system: str, user: str, temperature: float = 0.1) -> dict[str, Any]:
         """请求 JSON 输出（json mode 优先，失败则尝试解析）。"""
+        def _do() -> str:
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.settings.model,
+                    messages=[
+                        {"role": "system", "content": system + "\n\n必须只输出合法 JSON 对象，不要输出其他任何内容。"},
+                        {"role": "user", "content": user},
+                    ],
+                    temperature=temperature,
+                    response_format={"type": "json_object"},
+                )
+                return resp.choices[0].message.content or ""
+            except Exception as e:  # noqa: BLE001
+                self._maybe_mark_no_money(e)
+                raise
+
         try:
-            resp = self._client.chat.completions.create(
-                model=self.settings.model,
-                messages=[
-                    {"role": "system", "content": system + "\n\n必须只输出合法 JSON 对象，不要输出其他任何内容。"},
-                    {"role": "user", "content": user},
-                ],
-                temperature=temperature,
-                response_format={"type": "json_object"},
-            )
-            self._last_was_no_money = False
-            text = resp.choices[0].message.content or ""
+            text = self._chat_with_retry(_do)
         except Exception as e:  # noqa: BLE001
-            self._maybe_mark_no_money(e)
             logger.exception("LLM chat_json failed")
             raise LLMError(f"LLM 调用失败: {e}") from e
 
