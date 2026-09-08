@@ -93,9 +93,30 @@ def process_job_id(
 
     # 4) 逐步骤推进
     answers = AnswerEngine(user)
+    last_sig = ""
+    stall = 0
+    questions_checked = False
     for _step in range(MAX_STEPS):
         if not browser.modal_visible():
             break
+
+        # 无进度检测：弹窗文本连续 2 轮未变 → 尝试提交，失败即退出（防死循环）
+        sig = _modal_sig(browser)
+        if sig and sig == last_sig:
+            stall += 1
+        else:
+            stall = 0
+        last_sig = sig
+        if stall >= 2 and questions_checked:
+            if browser.has_submit_button():
+                ok = browser.submit_application()
+                res.status, res.reason = (JobStatus.SUBMITTED, "已提交(停滞)") if ok else (JobStatus.FAILED, "停滞提交失败")
+                res.elapsed = time.time() - started
+                return res
+            res.status, res.reason = (JobStatus.SUBMITTED, "已提交(成功页)") if _is_success(page) else (JobStatus.FAILED, "表单停滞无提交")
+            res.elapsed = time.time() - started
+            res.detail = {"modal_text": _modal_text(browser)[:400]}
+            return res
 
         # 0. Work experience 编辑页（ATS 要求补全日期）
         if browser.modal_has_work_experience():
@@ -116,6 +137,9 @@ def process_job_id(
         if browser.modal_has_email_select():
             browser.fill_contact_step(user.email, user.phone)
             if not browser.click_next():
+                # 单页表单：无"下一页"，填完直接提交或继续填简历/问题
+                if browser.has_submit_button() or browser.modal_has_file_input():
+                    continue  # 交给后续分支（B 简历 / 通用 fill+submit）
                 res.status, res.reason = JobStatus.FAILED, "联系方式无法推进"
                 res.elapsed = time.time() - started
                 return res
@@ -145,6 +169,17 @@ def process_job_id(
                 res.elapsed = time.time() - started
                 return res
             continue
+
+        # 问题步骤：先检查是否全部问题可答（不可答 → 放弃此岗位）
+        if not questions_checked:
+            questions_checked = True
+            can, missing = answers.is_page_answerable(browser.page)
+            if not can:
+                res.status, res.reason = JobStatus.SKIPPED, "存在无法回答的问题: " + " / ".join(missing[:3])
+                res.elapsed = time.time() - started
+                browser.close_modal()
+                return res
+            logger.info("问题全部可答 (%d 项)", len(missing))
 
         browser.fill_questions(answers)
         if browser.has_next_button():
@@ -244,6 +279,14 @@ def _modal_text(browser: LinkedInBrowser) -> str:
     except Exception:  # noqa: BLE001
         pass
     return ""
+
+
+def _modal_sig(browser: LinkedInBrowser) -> str:
+    """弹窗文本签名（用于停滞检测）。"""
+    import hashlib
+
+    t = _modal_text(browser)
+    return hashlib.md5(t.encode("utf-8", errors="ignore")).hexdigest()[:12] if t else ""
 
 
 def _is_success(page) -> bool:

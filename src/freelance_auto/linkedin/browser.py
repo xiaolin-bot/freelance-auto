@@ -240,13 +240,16 @@ class LinkedInBrowser:
     def open_job_by_id(
         self, job_id: str, desc_timeout_ms: int = 6000, keywords: str = "", location: str = ""
     ) -> dict[str, str]:
-        """直接访问 www.linkedin.com/jobs/view/<job_id> 独立详情页，返回详情。
+        """在搜索结果页使用 currentJobId 渲染右侧面板，返回详情。
 
-        独立页首次访问可渲染完整内容（h1+申请按钮）；不依赖 currentJobId 搜索页面板。
-        keywords/location 仅兼容保留，不用于本方案。
+        搜索页渲染比独立 /jobs/view/ 页更稳定（已验证 diag_panel 方案有效）。
         """
         page = self.page
-        url = f"https://www.linkedin.com/jobs/view/{job_id}"
+        base = "https://www.linkedin.com/jobs/search/?keywords=" + (keywords or "job").replace(" ", "%20")
+        if location:
+            base += "&location=" + location.replace(" ", "%20")
+        base += "&f_AL=true&f_TPR=r2592000"
+        url = f"{base}&currentJobId={job_id}"
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=45000)
         except Exception:  # noqa: BLE001
@@ -259,16 +262,38 @@ class LinkedInBrowser:
             logger.warning("会话失效，被重定向到登录页")
             return {}
         try:
-            page.locator("h1").first.wait_for(state="visible", timeout=12000)
-        except Exception:  # noqa: BLE001
-            logger.warning("独立页 h1 加载超时 job=%s (url=%s)", job_id, page.url[:60])
-        try:
-            page.locator("#job-details, .jobs-description__content").first.wait_for(
-                state="visible", timeout=desc_timeout_ms
+            page.locator(".job-details-jobs-unified-top-card__job-title").first.wait_for(
+                state="visible", timeout=15000
             )
         except Exception:  # noqa: BLE001
+            logger.warning("面板标题加载超时 job=%s (url=%s)", job_id, page.url[:60])
+        try:
+            page.locator(".jobs-description__content").first.wait_for(state="visible", timeout=desc_timeout_ms)
+        except Exception:  # noqa: BLE001
             pass
-        return self._extract_detail(single_page=True)
+        detail = self._extract_detail(single_page=False)
+
+        # 空壳/重定向防护：标题为空（被重定向到主页或空渲染）→ 刷新重试 1 次
+        if not detail.get("title"):
+            logger.warning("面板未渲染(空title)，刷新重试 1 次 job=%s", job_id)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                time.sleep(2)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                page.locator(".job-details-jobs-unified-top-card__job-title").first.wait_for(
+                    state="visible", timeout=15000
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("重试后面板仍未渲染 job=%s", job_id)
+            try:
+                page.locator(".jobs-description__content").first.wait_for(state="visible", timeout=desc_timeout_ms)
+            except Exception:  # noqa: BLE001
+                pass
+            detail = self._extract_detail(single_page=False)
+
+        return detail
 
     def open_job_card(self, index: int, desc_timeout_ms: int = 6000) -> dict[str, str]:
         """点击搜索页第 index 张岗位卡片（容器），打开右侧详情面板并返回详情。"""
@@ -408,16 +433,27 @@ class LinkedInBrowser:
             return False
 
     def modal_has_email_select(self) -> bool:
-        """当前弹窗是否有「选邮箱」下拉（联系方式步骤标志）。"""
+        """是否存在"未选中"的邮箱下拉（联系方式步骤标志）。
+
+        单页表单的 select 会一直存在，因此必须用"未选中"判断；
+        否则循环会死锁在联系方式分支，永远到不了简历/问题/提交步骤。
+        """
         modal = self.modal()
         if modal.count() == 0:
             return False
         for sel in modal.locator("select").all():
             try:
+                cur = (sel.input_value() or "").strip()
+                if cur and "@" not in cur:
+                    continue  # 已选非邮箱项（如国家码）
+                if cur and "@" in cur:
+                    continue  # 邮箱已选中
+                # 未选中（Select an option / 空）且选项文本是邮箱
                 opts = sel.locator("option")
                 for o in range(min(8, opts.count())):
                     v = opts.nth(o).get_attribute("value") or ""
-                    if "@" in v and v != "Select an option":
+                    t = (opts.nth(o).inner_text() or "").strip()
+                    if ("@" in v or "@" in t) and "select" not in (v + t).lower():
                         return True
             except Exception:  # noqa: BLE001
                 continue
@@ -431,7 +467,10 @@ class LinkedInBrowser:
 
 
     def fill_contact_step(self, email: str, phone: str) -> None:
-        """处理「联系方式」步骤：选邮箱、选国家码、填电话。不点按钮。"""
+        """处理「联系方式」步骤：选邮箱、选国家码、填电话。不点按钮。
+
+        邮箱 option 兼容 value=邮箱 或 value=数字ID(文本为邮箱) 两种。
+        """
         modal = self.modal()
         if modal.count() == 0:
             return
@@ -439,9 +478,15 @@ class LinkedInBrowser:
             try:
                 opts = sel.locator("option")
                 for o in range(opts.count()):
-                    v = opts.nth(o).get_attribute("value") or ""
-                    if "@" in v and v != "Select an option":
+                    opt = opts.nth(o)
+                    v = opt.get_attribute("value") or ""
+                    t = (opt.inner_text() or "").strip()
+                    if "@" in v and "select" not in v.lower():
                         sel.select_option(value=v)
+                        break
+                    if "@" in t and "select" not in t.lower() and "@" not in v:
+                        # value 是数字ID，用文本匹配的 option 文本选择
+                        sel.select_option(value=v or t)
                         break
             except Exception:  # noqa: BLE001
                 continue
@@ -510,10 +555,7 @@ class LinkedInBrowser:
             return False
 
     def has_review_button(self) -> bool:
-        return self._find_button(
-            'button:has-text("查看您的申请"), button[data-easy-apply-review-button], '
-            'button[aria-label="查看您的申请"]'
-        ) is not None
+        return self._find_review_button() is not None
 
     def submit_application(self) -> bool:
         """点「提交申请」。返回是否提交成功。"""
@@ -533,11 +575,8 @@ class LinkedInBrowser:
             return False
 
     def click_review(self) -> bool:
-        """点「查看您的申请」进预览页。"""
-        btn = self._find_button(
-            'button:has-text("查看您的申请"), button[data-easy-apply-review-button], '
-            'button[aria-label="查看您的申请"]'
-        )
+        """点「查看您的申请」进预览页（兼容纯"查看"文本按钮）。"""
+        btn = self._find_review_button()
         if btn is None:
             return False
         try:
@@ -659,6 +698,36 @@ class LinkedInBrowser:
                 b = loc.nth(i)
                 if b.is_enabled() and b.get_attribute("aria-disabled") is None:
                     return b
+            except Exception:  # noqa: BLE001
+                continue
+        return None
+
+    def _find_review_button(self):
+        """找 review/预览按钮：优先精确文案，其次纯"查看"，但排除查看文档按钮。"""
+        # 1) 精确 review
+        btn = self._find_button(
+            'button:has-text("查看您的申请"), button[data-easy-apply-review-button], '
+            'button[aria-label="查看您的申请"]'
+        )
+        if btn is not None:
+            return btn
+        # 2) 纯"查看"（排除 aria-label 含 文档/doc）
+        modal = self.modal()
+        if modal.count() == 0:
+            return None
+        loc = modal.locator("button:has-text('查看')")
+        n = loc.count()
+        for i in range(n):
+            try:
+                b = loc.nth(i)
+                aria = (b.get_attribute("aria-label") or "").lower()
+                if "doc" in aria or "文档" in aria:
+                    continue
+                if b.is_enabled() and b.get_attribute("aria-disabled") is None:
+                    # 排除纯空白文本按钮
+                    t = (b.inner_text() or "").strip()
+                    if t and "查看" in t:
+                        return b
             except Exception:  # noqa: BLE001
                 continue
         return None

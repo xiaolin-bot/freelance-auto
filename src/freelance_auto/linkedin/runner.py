@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 import sys
 import time
 from datetime import datetime
@@ -51,7 +52,13 @@ def main() -> int:
     ap.add_argument("--headless", action="store_true", default=False)
     ap.add_argument("--login-timeout", type=int, default=300, help="交互登录等待秒数")
     ap.add_argument("--allow-reapply", action="store_true", default=False, help="忽略历史记录重复投")
+    ap.add_argument("--sleep-range", default="10,25", help="岗位间随机间隔秒(防限流)，如 10,25")
     args = ap.parse_args()
+
+    try:
+        sleep_min, sleep_max = [int(x) for x in args.sleep_range.split(",")]
+    except Exception:  # noqa: BLE001
+        sleep_min, sleep_max = 10, 25
 
     logging.basicConfig(
         level=logging.INFO,
@@ -127,6 +134,12 @@ def main() -> int:
                     f"  [{done_total}/{len(pending)}] "
                     f"{res.title[:55]} → {res.status.value} ({res.reason}) {res.elapsed:.1f}s"
                 )
+
+                # 岗位间随机间隔（防 LinkedIn 限流）
+                if pending and jid != pending[-1]:
+                    gap = random.randint(sleep_min, sleep_max)
+                    print(f"  …休眠 {gap}s")
+                    time.sleep(gap)
 
             if summary["login_lost"]:
                 break  # 会话失效立即停

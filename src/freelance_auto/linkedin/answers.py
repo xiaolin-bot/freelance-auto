@@ -79,13 +79,28 @@ class AnswerEngine:
         if re.search(r"artificial\s+intelligence|ai\s+agent|llm", q):
             return str(self.user.years_ai)
 
+        # 0.2) 姓名类（档案固定值）
+        if "last" in qt and ("name" in qt or "surname" in qt):
+            return self.user.last_name
+        if "first" in qt and "name" in qt:
+            return self.user.first_name
+        if "姓名" in q or "名字" in q:
+            return self.user.chinese_name
+        if "email" in qt or "邮箱" in q:
+            return self.user.email
+        if "phone" in qt or "电话" in q or "手机" in q:
+            return self.user.phone
+
         # 0.5) 薪资/通知期类（非年限）
         if "salary" in qt or "compensation" in qt or "commission" in qt:
+            if "monthly" in qt or "month" in qt:
+                # 月薪字段：年薪估算 /12 取整
+                return str(round(self.user.expected_salary_annual_hkd / 12))
             if "expected" in qt or "expect" in qt or "target" in qt or "desired" in qt:
                 return str(self.user.expected_salary_annual_hkd)
             return str(self.user.current_salary_annual_hkd)
-        if "notice" in qt and "period" in qt:
-            return self.user.notice_period
+        if "notice" in qt:
+            return "1"  # 通知期字段常要求数字（月数），填 1 个月
 
         # 0.6) 语言水平（select：Chinese→母语, English→流利）
         if "proficiency" in qt:
@@ -110,6 +125,73 @@ class AnswerEngine:
                 return str(getattr(self.user, field))
 
         return None
+
+    def is_page_answerable(self, page: Page) -> tuple[bool, list[str]]:
+        """判断当前弹窗内所有必填问题是否都能被规则引擎回答。
+
+        返回 (能否回答, 无法回答的问题列表)。无法回答 → 调用方应放弃该岗位。
+        扫描：fieldset 单选、必填文本 input、必填 select。
+        """
+        missing: list[str] = []
+        # 1) fieldset 单选（radio）
+        radios = page.evaluate(
+            """()=>{
+                const out=[];
+                for(const fs of document.querySelectorAll('.artdeco-modal fieldset')){
+                    const q=(fs.innerText||'').slice(0,200);
+                    if(/必填|required/i.test(q)) out.push(q);
+                }
+                return out;
+            }"""
+        )
+        for q in radios or []:
+            if self.answer_for(q) is None:
+                missing.append(("radio", q[:80]))
+
+        # 2) 必填文本输入
+        textqs = page.evaluate(
+            """()=>{
+                const out=[];
+                const m=document.querySelector('.artdeco-modal');
+                if(!m) return out;
+                for(const el of m.querySelectorAll('input[type=text]')){
+                    const id=el.id||'';
+                    if(/phone/i.test(id)) continue;
+                    const g=el.closest('.fb-dash-form-element,[data-test-form-element],div[class*=form]');
+                    if(!g) continue;
+                    const q=(g.innerText||'').slice(0,200);
+                    if(/必填|required/i.test(q) && !(el.value||'').trim()) out.push(q);
+                }
+                return out;
+            }"""
+        )
+        for q in textqs or []:
+            qt = q.lower()
+            # 年限/薪资/通知期/语言走 answer_for；years/experience 兜底
+            if self.answer_for(q) is None and not ("years" in qt or "experience" in qt):
+                missing.append(("text", q[:80]))
+
+        # 3) 必填 select
+        selqs = page.evaluate(
+            """()=>{
+                const out=[];
+                const m=document.querySelector('.artdeco-modal');
+                if(!m) return out;
+                for(const el of m.querySelectorAll('select')){
+                    if((el.value||'').trim() && (el.value||'')!=='Select an option' && el.value!=='default') continue;
+                    const g=el.closest('.fb-dash-form-element,[data-test-form-element],div[class*=form]');
+                    if(!g) continue;
+                    const q=(g.innerText||'').slice(0,200);
+                    if(/必填|required/i.test(q)) out.push(q);
+                }
+                return out;
+            }"""
+        )
+        for q in selqs or []:
+            if self.answer_for(q) is None:
+                missing.append(("select", q[:80]))
+
+        return (len(missing) == 0, [f"{t}: {q}" for t, q in missing])
 
     def fill_page(self, page: Page) -> int:
         """填当前 Easy Apply 弹窗里所有可见问题。返回填写的字段数。"""
