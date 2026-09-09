@@ -53,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--login-timeout", type=int, default=300, help="交互登录等待秒数")
     ap.add_argument("--allow-reapply", action="store_true", default=False, help="忽略历史记录重复投")
     ap.add_argument("--sleep-range", default="10,25", help="岗位间随机间隔秒(防限流)，如 10,25")
+    ap.add_argument("--no-login-prompt", action="store_true", default=False,
+                    help="无人值守模式：会话失效/风控时直接退出，不弹登录框")
     args = ap.parse_args(argv)
 
     try:
@@ -74,8 +76,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         browser.start()
         if not browser.is_logged_in():
-            if args.headless:
-                print("❌ headless 模式未登录，请先运行：python -m freelance_auto.linkedin.cli login")
+            if args.no_login_prompt or args.headless:
+                print("⚠️ 未登录/风控拦截，无人值守模式直接退出（等下轮冷却）")
                 return 1
             print("未检测到有效登录，弹出浏览器等待手动登录…")
             if not browser.wait_for_manual_login(timeout_sec=args.login_timeout):

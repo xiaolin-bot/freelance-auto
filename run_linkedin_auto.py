@@ -66,6 +66,7 @@ def main() -> int:
         "--max-jobs", "5",
         "--sleep-range", "15,30",
         "--login-timeout", "240",
+        "--no-login-prompt",
     ]
     try:
         rc = runner_main(argv)

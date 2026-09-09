@@ -111,33 +111,53 @@ class LinkedInBrowser:
     def is_logged_in(self, timeout_ms: int = 30000) -> bool:
         """检查是否已登录。
 
-        关键：以「最终 URL」为准 —— /feed/ 若 302 到 /uas/login 或 authwall 即未登录。
-        标题可能因重定向最终停在登录页而误判。
+        以最终 URL 为准：/feed/ 302 到 login/authwall = 未登录；
+        HTTP 4xx/5xx（风控拦截）= 服务端拒绝，判为 False 并记录。
         """
         page = self.page
+        blocked = False
         try:
             resp = page.goto(
                 "https://www.linkedin.com/feed/",
                 wait_until="domcontentloaded",
                 timeout=timeout_ms,
             )
-        except Exception:  # noqa: BLE001
-            # 导航异常：仍尝试读最终 URL
-            pass
+            if resp and resp.status >= 400:
+                blocked = True
+                logger.warning("LinkedIn 返回 HTTP %s（可能风控拦截）", resp.status)
+        except Exception as e:  # noqa: BLE001
+            # ERR_HTTP_RESPONSE_CODE_FAILURE / TOO_MANY_REDIRECTS 等
+            blocked = True
+            logger.warning("访问 LinkedIn 失败(%s)，判定为风控/会话异常", type(e).__name__)
+            # 尝试访问主页确认
+            try:
+                page.goto("https://www.linkedin.com/", wait_until="domcontentloaded", timeout=15000)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             page.wait_for_load_state("domcontentloaded", timeout=15000)
         except Exception:  # noqa: BLE001
             pass
         url = page.url
         title = page.title()
-        # 判定未登录的 URL 特征
+
+        # 风控拦截：立即判 False
+        if blocked and ("login" in url or "authwall" in url or "index" in url or "about:blank" in url):
+            return False
+
         bad_markers = ("/uas/login", "/login", "authwall", "checkpoint", "challenge", "security")
         if any(m in url for m in bad_markers):
             logger.info("未登录: %s (%s)", url[:80], title)
             return False
-        # 兜底：标题含登录字样
         if any(k in title for k in ("登录", "Sign in", "Log in")):
             logger.info("未登录(标题): %s", title)
+            return False
+        # 页面未真正导航（about:blank / 主页 / chrome-error）也算未登录
+        if "about:blank" in url or "chrome-error" in url or "chromewebdata" in url:
+            logger.warning("页面异常(%s)，判定未登录/风控", url[:60])
+            return False
+        if url.rstrip("/").endswith("linkedin.com"):
+            logger.warning("页面未导航到内容页(%s)，判定未登录/风控", url[:60])
             return False
         logger.info("已登录: %s (%s)", url[:80], title)
         return True
