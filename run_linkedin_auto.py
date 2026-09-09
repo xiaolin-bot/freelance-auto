@@ -57,14 +57,16 @@ def main() -> int:
     k1 = KEYWORDS[day % len(KEYWORDS)]
     k2 = KEYWORDS[(day + 3) % len(KEYWORDS)]
     kw = f"{k1},{k2}"
-    log(logfile, f"关键词: {kw} | 每轮 5 岗 | 岗位间隔 15-30s")
+    log(logfile, f"关键词: {kw} | 每轮 10 岗 | 岗位间隔 30-90s | 每5个长休6-9min")
 
     # 调 runner（直接传 argv，不经过 subprocess 引号问题）
     argv = [
         "--keywords", kw,
         "--location", "Hong Kong",
-        "--max-jobs", "5",
-        "--sleep-range", "15,30",
+        "--max-jobs", "10",
+        "--sleep-range", "30,90",
+        "--break-every", "5",
+        "--break-range", "360,540",
         "--login-timeout", "240",
         "--no-login-prompt",
     ]

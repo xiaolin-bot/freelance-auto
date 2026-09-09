@@ -45,28 +45,48 @@ class LinkedInBrowser:
     # ---------------------------------------------------------------- 生命周期
 
     def start(self) -> None:
-        """启动浏览器并加载会话（如果存在）。"""
+        """启动浏览器。
+
+        推荐路径：launch_persistent_context(user_data_dir=profile_dir) —— 会话、
+        指纹、localStorage 全部持久化，避免每次冷启动被判定"新设备"而吊销 li_at。
+        兼容路径：无 profile_dir 时仍用 launch + storage_state。
+        """
         self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(
-            channel="msedge",
-            headless=self.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--no-first-run",
-                "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            ],
-        )
-        # 有会话文件就加载，没有就用干净 context
-        if self.session_file and Path(self.session_file).exists():
-            try:
-                self._context = self._browser.new_context(storage_state=self.session_file)
-                logger.info("已加载会话: %s", self.session_file)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("会话加载失败(%s)，使用干净 context", e)
-                self._context = self._browser.new_context()
+        args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--no-first-run",
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        ]
+        if self.profile_dir:
+            # 主路径：持久 profile（cookie+指纹+localStorage 全保留）
+            profile = Path(self.profile_dir)
+            profile.mkdir(parents=True, exist_ok=True)
+            self._context = self._pw.chromium.launch_persistent_context(
+                user_data_dir=str(profile),
+                channel="chrome",
+                headless=self.headless,
+                args=args,
+                viewport=None,  # 跟随 profile 内记忆的窗口大小，保持指纹一致
+            )
+            self._browser = self._context.browser  # type: ignore[assignment]
+            logger.info("持久 profile 已加载: %s", self.profile_dir)
         else:
-            self._context = self._browser.new_context()
+            # 兼容路径：launch + storage_state
+            self._browser = self._pw.chromium.launch(
+                channel="chrome",
+                headless=self.headless,
+                args=args,
+            )
+            if self.session_file and Path(self.session_file).exists():
+                try:
+                    self._context = self._browser.new_context(storage_state=self.session_file)
+                    logger.info("已加载会话: %s", self.session_file)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("会话加载失败(%s)，使用干净 context", e)
+                    self._context = self._browser.new_context()
+            else:
+                self._context = self._browser.new_context()
         # 反自动化检测：在页面创建前注入
         try:
             self._context.add_init_script(
@@ -104,9 +124,24 @@ class LinkedInBrowser:
     # ---------------------------------------------------------------- 会话
 
     def save_session(self, path: str) -> None:
-        """保存登录会话。"""
+        """保存登录会话。
+
+        持久 profile 模式下会话已存在于 user_data_dir，无需导出；
+        兼容模式（无 profile_dir）仍导出 storage_state JSON。
+        """
+        if self.profile_dir:
+            logger.info("持久 profile 模式：会话已自动持久化于 %s", self.profile_dir)
+            return
         self.context.storage_state(path=path)
         logger.info("会话已保存: %s", path)
+
+    def _has_li_at(self) -> bool:
+        """检查 context cookies 中是否存在 li_at（个人版登录核心令牌）。"""
+        try:
+            cookies = self.context.cookies("https://www.linkedin.com")
+            return any(c.get("name") == "li_at" for c in cookies)
+        except Exception:  # noqa: BLE001
+            return False
 
     def is_logged_in(self, timeout_ms: int = 30000) -> bool:
         """检查是否已登录。
@@ -158,6 +193,10 @@ class LinkedInBrowser:
             return False
         if url.rstrip("/").endswith("linkedin.com"):
             logger.warning("页面未导航到内容页(%s)，判定未登录/风控", url[:60])
+            return False
+        # li_at 存在性：URL 正常但缺 li_at 说明被服务端吊销/未认证占位
+        if not self._has_li_at():
+            logger.warning("URL 正常但缺少 li_at cookie，判定会话已吊销")
             return False
         logger.info("已登录: %s (%s)", url[:80], title)
         return True

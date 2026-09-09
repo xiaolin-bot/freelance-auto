@@ -100,6 +100,13 @@ def process_job_id(
         if not browser.modal_visible():
             break
 
+        # 每日申请上限检测：优雅停（不判失败，不继续投）
+        if _is_daily_limit(browser):
+            res.status, res.reason = JobStatus.FAILED, "今日申请上限，停止本批"
+            res.elapsed = time.time() - started
+            res.detail = {"daily_limit": True}
+            return res
+
         # 无进度检测：弹窗文本连续 2 轮未变 → 尝试提交，失败即退出（防死循环）
         sig = _modal_sig(browser)
         if sig and sig == last_sig:
@@ -287,6 +294,32 @@ def _modal_sig(browser: LinkedInBrowser) -> str:
 
     t = _modal_text(browser)
     return hashlib.md5(t.encode("utf-8", errors="ignore")).hexdigest()[:12] if t else ""
+
+
+DAILY_LIMIT_MARKERS = (
+    "application limit for today",
+    "application limit",
+    "you've reached the easy apply",
+    "come back tomorrow",
+    "daily limit",
+)
+
+
+def _is_daily_limit(browser: LinkedInBrowser) -> bool:
+    """检测「今日 Easy Apply 申请上限」弹窗。
+
+    出现此弹窗时应立即优雅停止，而不是继续投递或当失败处理。
+    """
+    try:
+        txt = _modal_text(browser) or ""
+        if txt and any(m in txt.lower() for m in DAILY_LIMIT_MARKERS):
+            logger.warning("检测到今日申请上限弹窗: %s", txt[:120])
+            return True
+        # 弹窗外（覆盖层/whole page）也检查一次
+        page_txt = browser.page.locator("body").inner_text(timeout=1000)
+        return any(m in page_txt.lower() for m in DAILY_LIMIT_MARKERS)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _is_success(page) -> bool:

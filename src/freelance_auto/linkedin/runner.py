@@ -22,6 +22,7 @@ from .models import JobStatus, UserProfile
 logger = logging.getLogger(__name__)
 
 DEFAULT_SESSION = str(Path("C:/freelance-auto/data/linkedin_session.json"))
+DEFAULT_PROFILE = str(Path("C:/freelance-auto/data/linkedin_profile"))
 DEFAULT_RESUME = str(Path("C:/Users/林耀国/Desktop/BendyLin_Resume0903.pdf"))
 DEFAULT_LOG_DIR = Path("C:/freelance-auto/data/linkedin_runs")
 
@@ -46,13 +47,16 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="LinkedIn Easy Apply 批量投递")
     ap.add_argument("--keywords", default="B2B sales", help="搜索关键词（可用,分隔多个）")
     ap.add_argument("--location", default="Hong Kong", help="地点")
-    ap.add_argument("--max-jobs", type=int, default=5, help="本批最多处理岗位数")
-    ap.add_argument("--session", default=DEFAULT_SESSION, help="会话 JSON 路径")
+    ap.add_argument("--max-jobs", type=int, default=10, help="本批最多处理岗位数（建议≤10，防风控降额）")
+    ap.add_argument("--session", default=DEFAULT_SESSION, help="兼容模式会话 JSON 路径")
+    ap.add_argument("--profile", default=DEFAULT_PROFILE, help="持久 Chrome profile 目录（推荐，会话+指纹全持久化）")
     ap.add_argument("--resume", default=DEFAULT_RESUME, help="简历 PDF 路径")
     ap.add_argument("--headless", action="store_true", default=False)
     ap.add_argument("--login-timeout", type=int, default=300, help="交互登录等待秒数")
     ap.add_argument("--allow-reapply", action="store_true", default=False, help="忽略历史记录重复投")
-    ap.add_argument("--sleep-range", default="10,25", help="岗位间随机间隔秒(防限流)，如 10,25")
+    ap.add_argument("--sleep-range", default="30,90", help="岗位间随机间隔秒(防限流)，如 30,90")
+    ap.add_argument("--break-every", type=int, default=5, help="每投 N 个后长休一次")
+    ap.add_argument("--break-range", default="300,600", help="长休秒数范围，如 300,600(5-10分钟)")
     ap.add_argument("--no-login-prompt", action="store_true", default=False,
                     help="无人值守模式：会话失效/风控时直接退出，不弹登录框")
     args = ap.parse_args(argv)
@@ -60,7 +64,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         sleep_min, sleep_max = [int(x) for x in args.sleep_range.split(",")]
     except Exception:  # noqa: BLE001
-        sleep_min, sleep_max = 10, 25
+        sleep_min, sleep_max = 30, 90
+    try:
+        break_min, break_max = [int(x) for x in args.break_range.split(",")]
+    except Exception:  # noqa: BLE001
+        break_min, break_max = 300, 600
 
     logging.basicConfig(
         level=logging.INFO,
@@ -72,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     done_ids = set() if args.allow_reapply else _load_done_ids(DEFAULT_LOG_DIR)
     user = UserProfile()
 
-    browser = LinkedInBrowser(headless=args.headless, session_file=args.session)
+    browser = LinkedInBrowser(
+        headless=args.headless,
+        session_file=args.session,
+        profile_dir=args.profile,
+    )
     try:
         browser.start()
         if not browser.is_logged_in():
@@ -96,8 +108,13 @@ def main(argv: list[str] | None = None) -> int:
 
         for kw in [k.strip() for k in args.keywords.split(",") if k.strip()]:
             print(f"\n=== 搜索: {kw} @ {args.location} ===")
-            jobs = browser.search_jobs(kw, location=args.location, easy_apply=True)
-            print(f"找到 {len(jobs)} 个岗位")
+            try:
+                jobs = browser.search_jobs(kw, location=args.location, easy_apply=True)
+                print(f"找到 {len(jobs)} 个岗位")
+            except Exception as e:  # noqa: BLE001  网络错误时优雅降级
+                logger.warning("搜索 %s 失败: %s", kw, e)
+                print(f"⚠️ 搜索失败，跳过该关键词: {str(e)[:60]}")
+                continue
 
             # 收集待处理岗位（去重 + 限量）
             pending: list[str] = []
@@ -146,11 +163,15 @@ def main(argv: list[str] | None = None) -> int:
                     f"{res.title[:55]} → {res.status.value} ({res.reason}) {res.elapsed:.1f}s"
                 )
 
-                # 岗位间随机间隔（防 LinkedIn 限流）
+                # 岗位间随机间隔（防 LinkedIn 限流）+ 每 N 个长休降温
                 if pending and jid != pending[-1]:
                     gap = random.randint(sleep_min, sleep_max)
                     print(f"  …休眠 {gap}s")
                     time.sleep(gap)
+                    if done_total % args.break_every == 0 and done_total > 0:
+                        br = random.randint(break_min, break_max)
+                        print(f"  🕐 已投 {done_total} 个，长休 {br}s（{br//60} 分钟）降温")
+                        time.sleep(br)
 
             if summary["login_lost"]:
                 break  # 会话失效立即停
