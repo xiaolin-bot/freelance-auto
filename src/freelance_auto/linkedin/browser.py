@@ -261,6 +261,19 @@ class LinkedInBrowser:
         if "login" in page.url or "uas/login" in page.url:
             logger.warning("会话失效，被重定向到登录页")
             return {}
+        # 页面崩溃（chrome-error）视为不可用
+        if "chrome-error" in page.url or "chromewebdata" in page.url:
+            logger.warning("页面崩溃(chrome-error) job=%s, 尝试恢复", job_id)
+            try:
+                page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
+                time.sleep(2)
+                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                time.sleep(2)
+            except Exception:  # noqa: BLE001
+                pass
+            if "chrome-error" in page.url or "chromewebdata" in page.url:
+                logger.warning("页面崩溃无法恢复 job=%s, 放弃该岗位", job_id)
+                return {}
         try:
             page.locator(".job-details-jobs-unified-top-card__job-title").first.wait_for(
                 state="visible", timeout=15000

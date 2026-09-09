@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .apply import process_job_id
+from .apply import CardResult, process_job_id
 from .browser import LinkedInBrowser
 from .models import JobStatus, UserProfile
 
@@ -42,7 +42,7 @@ def _load_done_ids(log_dir: Path) -> set[str]:
     return done
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="LinkedIn Easy Apply 批量投递")
     ap.add_argument("--keywords", default="B2B sales", help="搜索关键词（可用,分隔多个）")
     ap.add_argument("--location", default="Hong Kong", help="地点")
@@ -53,7 +53,7 @@ def main() -> int:
     ap.add_argument("--login-timeout", type=int, default=300, help="交互登录等待秒数")
     ap.add_argument("--allow-reapply", action="store_true", default=False, help="忽略历史记录重复投")
     ap.add_argument("--sleep-range", default="10,25", help="岗位间随机间隔秒(防限流)，如 10,25")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     try:
         sleep_min, sleep_max = [int(x) for x in args.sleep_range.split(",")]
@@ -111,7 +111,16 @@ def main() -> int:
 
             for jid in pending[: args.max_jobs]:
                 summary["discovered"] += 1
-                res = process_job_id(browser, user, args.resume, jid, keywords=kw, location=args.location)
+                try:
+                    res = process_job_id(browser, user, args.resume, jid, keywords=kw, location=args.location)
+                except Exception as e:  # noqa: BLE001  单岗位异常不终止整批
+                    logger.warning("岗位 %s 处理异常: %s", jid, e)
+                    res = CardResult(job_id=jid, title=f"job_{jid}", status=JobStatus.FAILED, reason=f"异常: {str(e)[:40]}")
+                    # 尝试恢复页面
+                    try:
+                        browser.page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
+                    except Exception:  # noqa: BLE001
+                        pass
                 rec = res.to_dict()
                 rec["keyword"] = kw
                 all_results.append(rec)
