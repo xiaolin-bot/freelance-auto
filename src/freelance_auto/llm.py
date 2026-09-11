@@ -355,6 +355,21 @@ def get_llm() -> "LLMClient | FallbackLLMClient":
         key = os.environ.get(f"LLM_FALLBACK_{name.upper()}_KEY", "").strip()
         if not key:
             continue
+        # 特殊：openrouter 支持 LLM_FALLBACK_OPENROUTER_MODELS（逗号分隔多模型）
+        # 例：LLM_FALLBACK_OPENROUTER_MODELS=nvidia/nemotron-3.5-lightning:free,openrouter/free
+        # 每个模型生成一个独立的 client，挨个 fallback
+        if name == "openrouter":
+            models_str = os.environ.get("LLM_FALLBACK_OPENROUTER_MODELS", "").strip()
+            if models_str:
+                models = [m.strip() for m in models_str.split(",") if m.strip()]
+                for m in models:
+                    try:
+                        c = LLMClient.fallback("openrouter", api_key=key, model=m)
+                        fallbacks.append(c)
+                        logger.info("OpenRouter fallback 模型: %s", m)
+                    except LLMError as e:
+                        logger.warning("OpenRouter fallback %s 初始化失败: %s", m, e)
+                continue  # 已处理完 openrouter
         try:
             c = LLMClient.fallback(name, api_key=key)
             fallbacks.append(c)
@@ -363,6 +378,7 @@ def get_llm() -> "LLMClient | FallbackLLMClient":
 
     if not fallbacks:
         return primary
+    logger.info("LLM fallback 链: 主 + %d 个备用", len(fallbacks))
     return FallbackLLMClient([primary, *fallbacks])
 
 

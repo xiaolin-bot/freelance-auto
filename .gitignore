@@ -23,3 +23,6 @@ tmp/*.png
 send_*.log
 gh_*.txt
 sent_status.txt
+*.png
+after_submit.png
+shot_*.png
