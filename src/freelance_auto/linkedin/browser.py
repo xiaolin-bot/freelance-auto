@@ -246,8 +246,9 @@ class LinkedInBrowser:
         if location:
             url += "&location=" + location.replace(" ", "%20")
         if easy_apply:
-            url += "&f_AL=true"  # 只筛 Easy Apply
+            url += "&f_AL=true"  # 只筛 Easy Apply（现改名"快速申请"，f_AL 参数仍有效）
         url += "&f_TPR=r2592000"  # 近 1 个月
+        url += "&sortBy=DD"       # 最新优先，保证新岗位排在前面（避免只看旧岗位）
 
         page.goto(url, wait_until="domcontentloaded", timeout=45000)
         self._wait_for_job_cards()
@@ -273,10 +274,19 @@ class LinkedInBrowser:
                     title = (c.inner_text() or "").strip().split("\n")[0]
                 if not jid and not title:
                     continue
+                # 卡片 footer 申请状态（"已申请"/"已表明意向" 等）→ 无需打开即可跳过
+                state = ""
+                try:
+                    st = c.locator(".job-card-container__footer-job-state")
+                    if st.count() > 0:
+                        state = (st.first.inner_text() or "").strip()
+                except Exception:  # noqa: BLE001
+                    pass
                 jobs.append({
                     "job_id": jid,
                     "title": title[:150],
                     "card_index": i,
+                    "state": state,
                 })
             except Exception:  # noqa: BLE001
                 continue
@@ -659,15 +669,65 @@ class LinkedInBrowser:
         except Exception:  # noqa: BLE001
             return False
 
-    def close_modal(self) -> None:
-        """关闭弹窗（若还开着）。"""
-        try:
-            close = self.modal().locator('button[aria-label="关闭"], button[aria-label="Close"]')
-            if close.count() > 0 and close.first.is_visible():
-                close.first.click()
-                time.sleep(1)
-        except Exception:  # noqa: BLE001
-            pass
+    # 关闭弹窗时绝不点击的按钮（会撤销/波及已提交操作）
+    _CLOSE_BLACKLIST = ("撤销", "undo", "撤回")
+
+    def close_modal(self, timeout: float = 8.0) -> bool:
+        """关闭弹窗（若还开着）。返回是否已关闭。
+
+        - 处理"是否保存此申请?"确认框 → 选"放弃"
+        - 处理意向确认弹窗（"以后再说"/"关闭"），绝不点"撤销"
+        - X / Escape 兜底，轮询确认真正关闭
+        """
+        page = self.page
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not self.modal_visible():
+                return True
+            # 1) 保存申请确认框 → 放弃
+            for label in ("放弃", "不保存", "放弃申请", "Discard", "Discard application"):
+                try:
+                    b = page.locator(f"button:has-text('{label}')").first
+                    if b.count() > 0 and b.is_visible():
+                        b.click(timeout=3000)
+                        time.sleep(0.8)
+                        break
+                except Exception:  # noqa: BLE001
+                    continue
+            # 2) 关闭 / 以后再说 / X（黑名单防护：撤销类按钮绝不点）
+            for sel in (
+                'button:has-text("关闭")',
+                'button:has-text("以后再说")',
+                'button:has-text("Not now")',
+                'button:has-text("Close")',
+                '.artdeco-modal__dismiss',
+                'button[aria-label="关闭"]',
+                'button[aria-label="Close"]',
+                'button[aria-label="Dismiss"]',
+            ):
+                try:
+                    b = page.locator(sel).first
+                    if b.count() == 0 or not b.is_visible():
+                        continue
+                    txt = ((b.inner_text() or "") + " " + (b.get_attribute("aria-label") or "")).lower()
+                    if any(bl in txt for bl in self._CLOSE_BLACKLIST):
+                        continue
+                    b.click(timeout=3000)
+                    time.sleep(0.8)
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
+            # 3) Escape 兜底
+            try:
+                if self.modal_visible():
+                    page.keyboard.press("Escape")
+                    time.sleep(0.6)
+            except Exception:  # noqa: BLE001
+                pass
+        closed = not self.modal_visible()
+        if not closed:
+            logger.warning("弹窗未能关闭（可能需人工处理）")
+        return closed
 
     def modal_has_work_experience(self) -> bool:
         """是否处于 Work experience 编辑页（Dates of employment + From 下拉）。"""

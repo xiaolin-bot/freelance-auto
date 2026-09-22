@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -21,10 +22,14 @@ from .models import JobStatus, UserProfile
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SESSION = str(Path("C:/freelance-auto/data/linkedin_session.json"))
-DEFAULT_PROFILE = str(Path("C:/freelance-auto/data/linkedin_profile"))
-DEFAULT_RESUME = str(Path("C:/Users/林耀国/Desktop/BendyLin_Resume0903.pdf"))
-DEFAULT_LOG_DIR = Path("C:/freelance-auto/data/linkedin_runs")
+# 数据目录可用环境变量 LINKEDIN_DATA_DIR 覆盖（默认与现有部署一致，不影响运行）
+_BASE = Path(os.environ.get("LINKEDIN_DATA_DIR", "C:/freelance-auto/data"))
+DEFAULT_SESSION = str(_BASE / "linkedin_session.json")
+DEFAULT_PROFILE = str(_BASE / "linkedin_profile")
+DEFAULT_RESUME = os.environ.get(
+    "LINKEDIN_RESUME", "C:/Users/林耀国/Desktop/BendyLin_Resume0903.pdf"
+)
+DEFAULT_LOG_DIR = _BASE / "linkedin_runs"
 
 
 def _load_done_ids(log_dir: Path) -> set[str]:
@@ -102,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         summary = {
             "discovered": 0, "applied": 0, "filtered": 0, "external": 0,
             "failed": 0, "login_lost": 0, "skipped_already": 0, "llm_calls": 0,
+            "interest": 0, "skipped_ui": 0,
             "total_time_s": 0,
         }
         run_started = time.time()
@@ -121,6 +127,12 @@ def main(argv: list[str] | None = None) -> int:
             for job in jobs:
                 jid = job.get("job_id", "")
                 if not jid:
+                    continue
+                # 卡片 footer 已显示"已申请/已表明意向" → 不打开，直接跳过（防反复点开旧岗位）
+                state = (job.get("state") or "").strip()
+                if any(m in state for m in ("已申请", "已表明意向", "申请已发送")) or \
+                        state.lower() in ("applied", "application submitted"):
+                    summary["skipped_already"] += 1
                     continue
                 if jid in done_ids:
                     summary["skipped_already"] += 1
@@ -150,6 +162,12 @@ def main(argv: list[str] | None = None) -> int:
                     summary["filtered"] += 1
                 elif res.status == JobStatus.EXTERNAL_APPLICATION:
                     summary["external"] += 1
+                elif res.status == JobStatus.INTEREST_EXPRESSED:
+                    summary["interest"] += 1
+                elif res.status == JobStatus.ALREADY_APPLIED:
+                    summary["skipped_already"] += 1
+                elif res.status == JobStatus.SKIPPED:
+                    summary["skipped_ui"] += 1
                 elif res.status == JobStatus.LOGIN_REQUIRED:
                     summary["login_lost"] += 1
                     print("⚠️ 会话失效，停止本批（重新登录后再跑）")
@@ -157,7 +175,9 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     summary["failed"] += 1
 
-                done_total = sum(summary[k] for k in ("applied", "filtered", "external", "failed"))
+                done_total = sum(
+                    summary[k] for k in ("applied", "filtered", "external", "failed", "interest", "skipped_ui")
+                )
                 print(
                     f"  [{done_total}/{len(pending)}] "
                     f"{res.title[:55]} → {res.status.value} ({res.reason}) {res.elapsed:.1f}s"
@@ -191,8 +211,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"发现: {summary['discovered']} | 投递成功: {summary['applied']} | 规则过滤: {summary['filtered']}")
         print(
             f"外链跳过: {summary['external']} | 失败: {summary['failed']} | "
-            f"会话失效: {summary['login_lost']} | 历史去重跳过: {summary['skipped_already']}"
+            f"已表明意向: {summary['interest']} | 会话失效: {summary['login_lost']}"
         )
+        print(f"去重跳过(含卡片已申请): {summary['skipped_already']} | 问题超纲跳过: {summary['skipped_ui']}")
         print(f"总耗时: {summary['total_time_s']}s | LLM 调用: {summary['llm_calls']}")
         if all_results:
             avg = sum(r["elapsed_s"] for r in all_results) / len(all_results)

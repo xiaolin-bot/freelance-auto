@@ -23,6 +23,7 @@ class JobStatus(str, Enum):
     CAPTCHA = "captcha"                 # 需要验证码
     EXTERNAL_APPLICATION = "external_application"  # 外部申请
     ALREADY_APPLIED = "already_applied" # 已投递过
+    INTEREST_EXPRESSED = "interest_expressed"  # 已表明意向（LinkedIn 意向流）
     NOT_ELIGIBLE = "not_eligible"       # 不符合条件
 
 

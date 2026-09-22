@@ -83,7 +83,17 @@ def process_job_id(
         return res
 
     # 3) 点申请按钮（面板内）
-    if not _click_apply_panel(browser):
+    outcome = _click_apply_panel(browser)
+    if outcome == "already":
+        res.status, res.reason = JobStatus.ALREADY_APPLIED, "页面显示已申请/已表明意向"
+        res.elapsed = time.time() - started
+        return res
+    if outcome == "interest":
+        res.status, res.reason = JobStatus.INTEREST_EXPRESSED, "已表明意向"
+        browser.close_modal()
+        res.elapsed = time.time() - started
+        return res
+    if outcome != "modal":
         if "login" in page.url:
             res.status, res.reason = JobStatus.LOGIN_REQUIRED, "会话失效"
         else:
@@ -105,6 +115,7 @@ def process_job_id(
             res.status, res.reason = JobStatus.FAILED, "今日申请上限，停止本批"
             res.elapsed = time.time() - started
             res.detail = {"daily_limit": True}
+            browser.close_modal()
             return res
 
         # 无进度检测：弹窗文本连续 2 轮未变 → 尝试提交，失败即退出（防死循环）
@@ -118,11 +129,16 @@ def process_job_id(
             if browser.has_submit_button():
                 ok = browser.submit_application()
                 res.status, res.reason = (JobStatus.SUBMITTED, "已提交(停滞)") if ok else (JobStatus.FAILED, "停滞提交失败")
+                if not ok:
+                    browser.close_modal()
                 res.elapsed = time.time() - started
                 return res
-            res.status, res.reason = (JobStatus.SUBMITTED, "已提交(成功页)") if _is_success(page) else (JobStatus.FAILED, "表单停滞无提交")
+            is_ok = _is_success(page)
+            res.status, res.reason = (JobStatus.SUBMITTED, "已提交(成功页)") if is_ok else (JobStatus.FAILED, "表单停滞无提交")
             res.elapsed = time.time() - started
-            res.detail = {"modal_text": _modal_text(browser)[:400]}
+            if not is_ok:
+                res.detail = {"modal_text": _modal_text(browser)[:400]}
+                browser.close_modal()
             return res
 
         # 0. Work experience 编辑页（ATS 要求补全日期）
@@ -137,6 +153,7 @@ def process_job_id(
             else:
                 res.status, res.reason = JobStatus.FAILED, "work experience 无法推进"
                 res.elapsed = time.time() - started
+                browser.close_modal()
                 return res
             continue
 
@@ -149,6 +166,7 @@ def process_job_id(
                     continue  # 交给后续分支（B 简历 / 通用 fill+submit）
                 res.status, res.reason = JobStatus.FAILED, "联系方式无法推进"
                 res.elapsed = time.time() - started
+                browser.close_modal()
                 return res
             continue
 
@@ -174,6 +192,7 @@ def process_job_id(
             if not browser.click_next():
                 res.status, res.reason = JobStatus.FAILED, "简历步骤无法推进"
                 res.elapsed = time.time() - started
+                browser.close_modal()
                 return res
             continue
 
@@ -197,6 +216,8 @@ def process_job_id(
         if browser.has_submit_button():
             ok = browser.submit_application()
             res.status, res.reason = (JobStatus.SUBMITTED, "已提交") if ok else (JobStatus.FAILED, "提交失败")
+            if not ok:
+                browser.close_modal()
             res.elapsed = time.time() - started
             return res
 
@@ -204,14 +225,20 @@ def process_job_id(
             browser.click_review()
             continue
 
-        res.status, res.reason = (JobStatus.SUBMITTED, "已提交(成功页)") if _is_success(page) else (JobStatus.FAILED, "表单卡住")
+        is_ok = _is_success(page)
+        res.status, res.reason = (JobStatus.SUBMITTED, "已提交(成功页)") if is_ok else (JobStatus.FAILED, "表单卡住")
         res.elapsed = time.time() - started
-        res.detail = {"modal_text": _modal_text(browser)[:400]}
+        if not is_ok:
+            res.detail = {"modal_text": _modal_text(browser)[:400]}
+            browser.close_modal()
         return res
     else:
-        res.status, res.reason = (JobStatus.SUBMITTED, "超步数") if _is_success(page) else (JobStatus.FAILED, "超步数")
+        is_ok = _is_success(page)
+        res.status, res.reason = (JobStatus.SUBMITTED, "超步数") if is_ok else (JobStatus.FAILED, "超步数")
         res.elapsed = time.time() - started
-        res.detail = {"modal_text": _modal_text(browser)[:400]}
+        if not is_ok:
+            res.detail = {"modal_text": _modal_text(browser)[:400]}
+            browser.close_modal()
         return res
 
     if _is_success(page):
@@ -234,49 +261,99 @@ def process_search_card(
     return res
 
 
-def _click_apply_panel(browser: LinkedInBrowser) -> bool:
-    """点可见申请按钮，等待弹窗出现。返回是否弹窗。"""
+# 意向流弹窗标记（"您已表明意向 / 您已私下分享职业档案"）
+INTEREST_MARKERS = ("已表明意向", "已私下分享职业档案", "表明意向", "expressed interest")
+
+# 按钮/页面上表示"已申请/已表明意向"的状态词（用中文 UI 标记，避免误伤公司名如 Applied Materials）
+APPLIED_BTN_MARKERS = ("已申请", "已表明意向", "申请已发送")
+
+
+def _panel_apply_button(browser: LinkedInBrowser, timeout: float = 10.0):
+    """在详情面板找申请按钮。返回 locator 或 None。
+
+    优先用固定 class `button.jobs-apply-button`（LinkedIn 申请按钮，2026-09 改名
+    "快速申请" 后 class 仍稳定），其次按 aria-label 兜底。
+    """
     page = browser.page
     # 范围：详情面板存在则限定面板，否则全页（独立岗位页）
     detail = page.locator(".jobs-search__job-details")
     if detail.count() == 0:
+        detail = page.locator(".jobs-search__job-details--container")
+    if detail.count() == 0:
         detail = page.locator("body")
-    candidates = (
-        "button:has-text('Easy Apply')",
-        "button:has-text('领英申请')",
-        "button:has-text('我有意向')",
-        "button:has-text(\"I'm interested\")",
-        "button:has-text('申请')",
-        "button:has-text('Apply')",
-    )
-    # 等按钮出现（面板渲染后按钮可能延迟 1-3s）
-    deadline = time.time() + 8
+
+    deadline = time.time() + timeout
     while time.time() < deadline:
-        for sel in candidates:
-            loc = detail.locator(sel)
-            n = loc.count()
-            for i in range(n):
-                try:
-                    btn = loc.nth(i)
-                    if not btn.is_visible():
-                        continue
-                    txt = btn.inner_text().strip()
-                    if txt not in ("申请", "Apply", "Easy Apply", "领英申请", "我有意向", "I'm interested"):
-                        continue
-                    before_url = page.url
-                    btn.click(timeout=10000)
-                    # 等待弹窗（最多 ~8s）
-                    for _ in range(10):
-                        time.sleep(0.8)
-                        if browser.modal_visible():
-                            logger.info("已打开 Easy Apply 弹窗（按钮: %s）", txt)
-                            return True
-                        if page.url != before_url and "jobs/view" not in page.url and "jobs/search" not in page.url:
-                            return False
-                except Exception:  # noqa: BLE001
-                    continue
-        time.sleep(0.5)
-    return False
+        # 1) 精确 class（最稳）
+        cand = detail.locator("button.jobs-apply-button")
+        for i in range(cand.count()):
+            try:
+                b = cand.nth(i)
+                if b.is_visible():
+                    return b
+            except Exception:  # noqa: BLE001
+                continue
+        # 2) 兜底：aria 含 申请/Apply
+        cand2 = detail.locator(
+            "button[aria-label*='申请'], button[aria-label*='Easy Apply'], "
+            "button[aria-label*='Apply']"
+        )
+        for i in range(cand2.count()):
+            try:
+                b = cand2.nth(i)
+                if b.is_visible():
+                    return b
+            except Exception:  # noqa: BLE001
+                continue
+        time.sleep(0.4)
+    return None
+
+
+def _click_apply_panel(browser: LinkedInBrowser) -> str:
+    """点详情面板内的申请按钮。返回结果：
+
+    'modal'    → 打开了 Easy Apply 填表弹窗（进入多步流程）
+    'interest' → 打开的是"已表明意向"确认弹窗（LinkedIn 意向流）
+    'already'  → 按钮显示已申请/已表明意向（未点击）
+    'login'    → 会话失效
+    'none'     → 未找到申请按钮（外部申请/无 Easy Apply）
+    """
+    page = browser.page
+    btn = _panel_apply_button(browser)
+    if btn is None:
+        if "login" in page.url:
+            return "login"
+        return "none"
+
+    combined = (btn.inner_text() or "") + " " + (btn.get_attribute("aria-label") or "")
+    if any(m in combined for m in APPLIED_BTN_MARKERS):
+        logger.info("按钮显示已申请/已表明意向，跳过点击: %s", combined.strip()[:60])
+        return "already"
+
+    before_url = page.url
+    try:
+        btn.scroll_into_view_if_needed(timeout=5000)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        btn.click(timeout=12000)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("点击申请按钮失败: %s", e)
+        return "none"
+
+    # 等待弹窗/跳转（最多 ~13s）
+    for _ in range(16):
+        time.sleep(0.8)
+        if browser.modal_visible():
+            txt = _modal_text(browser) or ""
+            if any(m in txt for m in INTEREST_MARKERS):
+                logger.info("检测到「已表明意向」弹窗")
+                return "interest"
+            logger.info("已打开 Easy Apply 弹窗")
+            return "modal"
+        if page.url != before_url and "jobs" not in page.url:
+            return "login" if "login" in page.url else "none"
+    return "none"
 
 
 def _modal_text(browser: LinkedInBrowser) -> str:
@@ -329,6 +406,7 @@ def _is_success(page) -> bool:
             k in txt
             for k in (
                 "已提交", "已发送申请", "已提交申请",
+                "您的申请已发送", "申请已发送", "申请发送成功",
                 "We've received your application", "Your application was sent",
                 "application sent",
             )
