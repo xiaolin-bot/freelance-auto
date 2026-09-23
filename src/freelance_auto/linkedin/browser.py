@@ -250,12 +250,25 @@ class LinkedInBrowser:
         url += "&f_TPR=r2592000"  # 近 1 个月
         url += "&sortBy=DD"       # 最新优先，保证新岗位排在前面（避免只看旧岗位）
 
-        page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        self._wait_for_job_cards()
-
         jobs = []
         cards = self._job_card_locator()
-        n = cards.count()
+        n = 0
+        # 空壳渲染防护：LinkedIn 偶发返回空页面（卡片不渲染），最多重试 2 次
+        for attempt in range(1, 4):
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("搜索页导航失败(第%d次): %s", attempt, str(e)[:80])
+            self._wait_for_job_cards(timeout_ms=15000)
+            cards = self._job_card_locator()
+            n = cards.count()
+            if n > 0:
+                break
+            if attempt < 3:
+                logger.warning("搜索 '%s' 第%d次未渲染岗位卡片，刷新重试…", keywords, attempt)
+                time.sleep(4)
+        if n == 0:
+            logger.warning("搜索 '%s' 最终为 0 个岗位（空壳/无结果/风控），跳过该关键词", keywords)
         for i in range(min(max_results, n)):
             try:
                 c = cards.nth(i)
